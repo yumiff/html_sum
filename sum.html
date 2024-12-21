@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>欲しいものリスト</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .budget-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 15px;
+        }
+
+        .budget-input {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            width: 120px;
+            text-align: right;
+        }
+
+        .task-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background-color: #fff;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            border: 1px solid #ddd;
+            transition: background-color 0.2s ease;
+        }
+
+        .task-item.dragging {
+            opacity: 0.5;
+        }
+
+        .task-item input {
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #333;
+            text-align: right;
+        }
+
+        .task-item input[type="text"] {
+            width: 180px;
+        }
+
+        .task-item .total {
+            flex-grow: 1;
+            text-align: right;
+            color: #555;
+            font-family: monospace;
+            font-size: 16px;
+        }
+
+        .button-container {
+            display: flex;
+            justify-content: flex-start;
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            color: #333;
+        }
+
+        .add-btn {
+            background-color: transparent;
+            color: #333;
+            border: 1px solid #333;
+        }
+
+        .add-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        .delete-btn {
+            background-color: transparent;
+            color: #999999;
+            font-size: 20px;
+            font-weight: normal;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .delete-btn:hover {
+            color: #666;
+        }
+
+        .task-item input[type="text"]:focus,
+        .task-item input[type="number"]:focus {
+            outline: none;
+            border-color: #666;
+        }
+
+        .total-amount {
+            text-align: right;
+            font-size: 18px;
+            color: #333;
+            margin-top: 20px;
+        }
+
+        /* 累計額が予算を超えた場合のセルの背景色 */
+        .over-budget {
+            background-color: #f8d7da; /* 薄い赤背景 */
+        }
+    </style>
+
+    <!-- jsPDFのCDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>欲しいものリスト</h1>
+    <div class="budget-container">
+        <input type="text" class="budget-input" id="budgetInput" placeholder="予算" />
+    </div>
+
+    <div class="button-container">
+        <button class="add-btn" id="addTaskBtn">＋</button>
+        <button class="add-btn" id="generatePdfBtn">PDF出力</button>
+    </div>
+
+    <ul class="task-list" id="taskList"></ul>
+    <div class="total-amount" id="totalAmount">
+        合計金額: ¥0
+    </div>
+</div>
+
+<script>
+    let tasks = [];
+    let budget = 0;
+
+    const taskListElement = document.getElementById('taskList');
+    const addTaskBtn = document.getElementById('addTaskBtn');
+    const totalAmountElement = document.getElementById('totalAmount');
+    const budgetInput = document.getElementById('budgetInput');
+
+    // 予算が変更されたときの処理
+    budgetInput.addEventListener('input', (e) => {
+        budget = parseInt(e.target.value) || 0; // 予算を設定
+        updateTotalAmount(); // 合計金額を再計算
+        updateTaskList(); // タスクリストを再描画
+    });
+
+    // タスク追加
+    addTaskBtn.addEventListener('click', () => {
+        tasks.push({ labelStr: '', value: 0 }); // 初期値を0に設定
+        updateTaskList();
+    });
+
+    // 数値を ¥xxx 形式にする関数
+    function formatCurrency(value) {
+        return `¥${Number(value).toLocaleString('ja-JP')}`;
+    }
+
+    // 入力値が数値かどうかを確認する関数
+    function isValidNumber(value) {
+        return /^[0-9]+$/.test(value);
+    }
+
+    // タスク削除
+    function deleteTask(index) {
+        tasks.splice(index, 1);
+        updateTaskList();
+    }
+
+    // 合計金額を更新する関数
+    function updateTotalAmount() {
+        const total = tasks.reduce((sum, task) => sum + (Number(task.value) || 0), 0);
+        totalAmountElement.textContent = `合計金額: ${formatCurrency(total)}`;
+    }
+
+    // 数値入力欄で変更があった場合
+    function handleValueInput(event, index) {
+        const value = event.target.value;
+        tasks[index].value = value;  // 入力された生の数値を保持
+    }
+
+    // 数値入力欄の「blur」時に値をチェック
+    function validateValueOnBlur(event, index) {
+        const value = tasks[index].value;
+        
+        // 数値以外が入力された場合
+        if (!isValidNumber(value)) {
+            tasks[index].value = 0;  // 初期値にリセット
+        }
+
+        updateTaskList();  // リストを再描画
+        updateTotalAmount();  // 合計金額を更新
+    }
+
+    // タスクを表示
+    function updateTaskList() {
+        taskListElement.innerHTML = '';
+        tasks.forEach((task, index) => {
+            const listItem = document.createElement('li');
+            listItem.classList.add('task-item');
+            listItem.setAttribute('draggable', 'true');
+            listItem.setAttribute('data-index', index); // タスクのインデックスを保存
+
+            // ラベル入力フィールド
+            const labelInput = document.createElement('input');
+            labelInput.type = 'text';
+            labelInput.placeholder = '欲しいものを入力';
+            labelInput.value = task.labelStr;
+            labelInput.addEventListener('input', (e) => {
+                task.labelStr = e.target.value;
+            });
+
+            // 値入力フィールド（テキストボックス）
+            const valueInput = document.createElement('input');
+            valueInput.type = 'text';  // 数字だけを入力
+            valueInput.placeholder = '金額';
+            valueInput.value = task.value ? formatCurrency(task.value) : ''; // 初期状態で¥0を表示
+            valueInput.addEventListener('input', (e) => handleValueInput(e, index));
+            valueInput.addEventListener('blur', (e) => validateValueOnBlur(e, index));  // 入力後に検証
+
+            // 累計表示
+            const cumulativeText = document.createElement('span');
+            cumulativeText.classList.add('total');
+            cumulativeText.textContent = formatCurrency(getCumulativeTotal(index));
+
+            // 累計が予算を超えている場合に背景色を変更
+            if (getCumulativeTotal(index) > budget && budget > 0) {
+                listItem.classList.add('over-budget');
+            }
+
+            // 削除ボタン
+            const deleteButton = document.createElement('button');
+            deleteButton.classList.add('delete-btn');
+            deleteButton.textContent = '×';
+            deleteButton.addEventListener('click', () => {
+                deleteTask(index);
+            });
+
+            listItem.append(labelInput, valueInput, cumulativeText, deleteButton);
+            taskListElement.appendChild(listItem);
+        });
+
+        // ドラッグ＆ドロップのイベントを再設定
+        attachDragAndDropEvents();
+    }
+
+    // ドラッグ＆ドロップイベントを設定
+    function attachDragAndDropEvents() {
+        const taskItems = document.querySelectorAll('.task-item');
+        
+        taskItems.forEach(item => {
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', item.getAttribute('data-index'));  // ドラッグ開始時にインデックスを保存
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                item.style.backgroundColor = '#f0f0f0'; // ドラッグ中の背景色
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.style.backgroundColor = ''; // ドラッグ終了時に背景色を戻す
+            });
+
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const draggedIndex = e.dataTransfer.getData('text/plain');
+                const targetIndex = item.getAttribute('data-index');
+                if (draggedIndex !== targetIndex) {
+                    const draggedTask = tasks[draggedIndex];
+                    tasks.splice(draggedIndex, 1);
+                    tasks.splice(targetIndex, 0, draggedTask);
+                    updateTaskList();  // 順序を変更した後にリストを再描画
+                }
+            });
+        });
+    }
+
+    // 累計金額を計算
+    function getCumulativeTotal(index) {
+        return tasks.slice(0, index + 1).reduce((sum, task) => sum + (Number(task.value) || 0), 0);
+    }
+
+    updateTaskList();  // 初期化時にタスクリストを表示
+    updateTotalAmount();  // 合計金額を表示
+
+
+// PDF出力処理
+generatePdfBtn.addEventListener('click', () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // タイトルをPDFに追加
+    doc.text('欲しいものリスト', 20, 20);
+
+    // タスクリストをPDFに書き込む
+    let yOffset = 30;
+    tasks.forEach(task => {
+        // タスク名と金額をPDFに表示
+        doc.text(`${task.labelStr} - ${formatCurrency(task.value)}`, 20, yOffset);
+        yOffset += 10;
+    });
+
+    // 合計金額も追加
+    doc.text(`合計金額: ${formatCurrency(tasks.reduce((sum, task) => sum + (Number(task.value) || 0), 0))}`, 20, yOffset + 10);
+
+    // PDFを保存
+    doc.save('wishlist.pdf');
+});
+
+</script>
+
+</body>
+</html>
+
